@@ -1,4 +1,6 @@
 const STORAGE_KEY = 'gh_query_tool_config';
+const STATUS_FILE_PATH = 'status.json';
+const OWN_REPO = 'SrMakrein/traffic_light';
 
 // UI Elements
 const reposContainer = document.getElementById('repos-container');
@@ -14,6 +16,9 @@ const debugLog = document.getElementById('debug-log');
 const clearDebugBtn = document.getElementById('clear-debug-btn');
 const matrixContainer = document.getElementById('matrix-container');
 const matrixBody = document.getElementById('matrix-body');
+
+let sharedStatus = { blocked_repos: [] };
+let statusFileSha = null;
 
 // 29 Repositories detected in screenshots
 const REPO_LIST = [
@@ -59,6 +64,67 @@ runSearchBtn.addEventListener('click', startSearch);
 clearDebugBtn.addEventListener('click', () => {
     debugLog.innerHTML = '<p class="log-entry system">Consola limpiada</p>';
 });
+
+async function loadSharedStatus(token) {
+    log('Sincronizando estados de bloqueo desde GitHub...', 'info');
+    try {
+        const res = await fetch(`https://api.github.com/repos/${OWN_REPO}/contents/${STATUS_FILE_PATH}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            statusFileSha = data.sha;
+            const content = decodeURIComponent(escape(atob(data.content.replace(/\s/g, ''))));
+            sharedStatus = JSON.parse(content);
+            log(`Estados cargados: ${sharedStatus.blocked_repos.length} bloqueos encontrados`, 'success');
+        } else {
+            log('No se pudo cargar status.json (¿Es la primera vez?)', 'warn');
+        }
+    } catch (e) {
+        log(`Error al cargar estados: ${e.message}`, 'error');
+    }
+}
+
+async function syncStatusWithGitHub(token) {
+    log('Guardando cambios en el repositorio...', 'info');
+    try {
+        // Get newest SHA first
+        const rawRes = await fetch(`https://api.github.com/repos/${OWN_REPO}/contents/${STATUS_FILE_PATH}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (rawRes.ok) {
+            const rawData = await rawRes.json();
+            statusFileSha = rawData.sha;
+        }
+
+        const content = JSON.stringify(sharedStatus, null, 2);
+        const b64Content = btoa(unescape(encodeURIComponent(content)));
+
+        const putRes = await fetch(`https://api.github.com/repos/${OWN_REPO}/contents/${STATUS_FILE_PATH}`, {
+            method: 'PUT',
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: 'Update: Persistence Status (Traffic Light)',
+                content: b64Content,
+                sha: statusFileSha
+            })
+        });
+
+        if (putRes.ok) {
+            const putData = await putRes.json();
+            statusFileSha = putData.content.sha;
+            log('Sincronización completada con éxito', 'success');
+        } else {
+            throw new Error(`HTTP ${putRes.status}`);
+        }
+    } catch (e) {
+        log(`Error de sincronización: ${e.message}`, 'error');
+        alert('Error al guardar el estado en GitHub. ¿Tienes permisos de escritura en el repo?');
+    }
+}
 
 function addRepoRow(url = '', branch = 'main') {
     const row = repoTemplate.content.cloneNode(true);
@@ -150,6 +216,9 @@ async function startSearch() {
         const userData = await userRes.json();
         log(`Autorizado como: ${userData.login}`, 'success');
 
+        // LOAD SHARED STATUS
+        await loadSharedStatus(token);
+
         // Execute search for each environment of each repo
         for (const repoName of REPO_LIST) {
             for (const env of ENVIRONMENTS) {
@@ -180,6 +249,11 @@ function renderTableRow(res, repoInfo) {
     const tr = document.createElement('tr');
     tr.id = `row-${res.name.replace(/[^a-z0-9]/gi, '-')}-${repoInfo.envLabel.toLowerCase()}`;
     
+    // Check if initially blocked
+    if (sharedStatus.blocked_repos.includes(tr.id)) {
+        tr.classList.add('row-blocked');
+    }
+
     let version = '---';
     if (res.status === 'success' && res.files && res.files.length > 0) {
         const content = res.files[0].content;
@@ -201,18 +275,45 @@ function renderTableRow(res, repoInfo) {
         <td><span class="env-tag ${repoInfo.envClass}">${repoInfo.envLabel}</span></td>
         <td class="version-cell">${escapeHtml(version)}</td>
         <td>
-            <button class="btn btn-secondary btn-small btn-block" onclick="toggleBlockRow('${tr.id}')">Bloquear</button>
+            <button class="btn btn-secondary btn-small btn-block" onclick="toggleBlockRow('${tr.id}')">
+                ${tr.classList.contains('row-blocked') ? 'Desbloquear' : 'Bloquear'}
+            </button>
         </td>
     `;
 
     matrixBody.appendChild(tr);
 }
 
-function toggleBlockRow(rowId) {
+async function toggleBlockRow(rowId) {
+    const token = tokenInput.value.trim();
+    if (!token) {
+        alert('Necesitas el token para realizar cambios compartidos.');
+        return;
+    }
+
     const row = document.getElementById(rowId);
     row.classList.toggle('row-blocked');
     const btn = row.querySelector('.btn-block');
-    btn.innerText = row.classList.contains('row-blocked') ? 'Desbloquear' : 'Bloquear';
+    const isBlocked = row.classList.contains('row-blocked');
+    
+    btn.innerText = isBlocked ? 'Desbloquear' : 'Bloquear';
+    
+    // Update local set
+    if (isBlocked) {
+        if (!sharedStatus.blocked_repos.includes(rowId)) {
+            sharedStatus.blocked_repos.push(rowId);
+        }
+    } else {
+        sharedStatus.blocked_repos = sharedStatus.blocked_repos.filter(id => id !== rowId);
+    }
+
+    // Sync to GitHub
+    btn.disabled = true;
+    const oldHtml = btn.innerHTML;
+    btn.innerHTML = '⌛';
+    await syncStatusWithGitHub(token);
+    btn.disabled = false;
+    btn.innerHTML = isBlocked ? 'Desbloquear' : 'Bloquear';
 }
 
 async function queryRepo(repo, keyword, token) {
