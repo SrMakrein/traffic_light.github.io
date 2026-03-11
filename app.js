@@ -243,19 +243,47 @@ async function queryRepo(repo, keyword, token) {
         // FETCH RAW CONTENT
         const fileResults = await Promise.all(items.slice(0, 5).map(async (item) => {
             try {
-                // If it was a direct match, the item from /contents already has everything
-                // We use the raw accept header to get the string content directly.
+                log(`Obteniendo contenido de: ${item.path}...`, 'info');
+                
+                // We try to use the most direct way: if the item already has 'content', use it.
+                // Note: items from Search API don't have 'content', items from Contents API usually do.
+                if (item.content && item.encoding === 'base64') {
+                    log(`Decodificando contenido base64 de ${item.path}...`, 'success');
+                    // Remove newlines and decode
+                    const cleanBase64 = item.content.replace(/\s/g, '');
+                    return { 
+                        path: item.path, 
+                        content: decodeURIComponent(escape(atob(cleanBase64))) 
+                    };
+                }
+
+                // If no content, fetch it specifically with the RAW header
                 const contentRes = await fetch(item.url, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Accept': 'application/vnd.github.v3.raw'
                     }
                 });
+                
                 if (!contentRes.ok) throw new Error(`HTTP ${contentRes.status}`);
                 
-                const rawContent = await contentRes.text();
-                return { path: item.path, content: rawContent };
+                const responseText = await contentRes.text();
+                
+                // If the response is still a JSON (happens if the header is ignored), try to decode it
+                try {
+                    const json = JSON.parse(responseText);
+                    if (json.content && json.encoding === 'base64') {
+                        const cleanB64 = json.content.replace(/\s/g, '');
+                        const decoded = decodeURIComponent(escape(atob(cleanB64)));
+                        return { path: item.path, content: decoded };
+                    }
+                } catch (e) {
+                    // Not JSON, use as raw text
+                }
+
+                return { path: item.path, content: responseText };
             } catch (e) {
+                log(`Error en ${item.path}: ${e.message}`, 'error');
                 return { path: item.path, error: e.message };
             }
         }));
