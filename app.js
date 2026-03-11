@@ -155,66 +155,76 @@ async function startSearch() {
 }
 
 async function queryRepo(repo, keyword, token) {
-    log(`Consultando repo: ${repo.url}`, 'info');
+    log(`Interesado en: ${repo.url}`, 'info');
     try {
-        // Robust owner/repo extraction
-        let owner, repoName, urlBranch;
+        let owner, repoName, urlBranch, urlPath;
         
-        // Remove trailing .git and spaces
-        let cleanUrl = repo.url.trim().replace(/\.git$/, '').replace(/\/$/, '');
+        // Remove trailing .git, tokens and spaces
+        let cleanUrl = repo.url.split('?')[0].trim().replace(/\.git$/, '').replace(/\/$/, '');
         
         // Match standard github URLs
         const match = cleanUrl.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\/tree\/([^\/]+))?$/);
+        // Match raw github URLs
+        const rawMatch = cleanUrl.match(/raw\.githubusercontent\.com\/([^\/]+)\/([^\/]+)\/(?:refs\/heads\/)?([^\/]+)\/?(.*)$/);
         
         if (match) {
             owner = match[1];
             repoName = match[2];
             urlBranch = match[3];
+        } else if (rawMatch) {
+            owner = rawMatch[1];
+            repoName = rawMatch[2];
+            urlBranch = rawMatch[3];
+            urlPath = rawMatch[4];
+            log(`Detectado URL de contenido RAW. Repo: ${owner}/${repoName}`, 'success');
         } else if (cleanUrl.includes('/')) {
             const parts = cleanUrl.split('/').filter(p => p && p !== 'https:' && p !== 'github.com');
             owner = parts[parts.length - 2];
             repoName = parts[parts.length - 1];
         } else {
-            throw new Error('Formato de URL o nombre de repo inválido');
+            throw new Error('Formato de URL no reconocido');
         }
 
+        // Priority for branch: 1. Manual input, 2. URL branch, 3. main
         const targetBranch = repo.branch || urlBranch || 'main';
-        log(`Repositorio detectado: ${owner}/${repoName} (Rama: ${targetBranch})`, 'info');
+        // Priority for path: if keyword is provided, use it. If URL included a path and no keyword, use that.
+        const path = (keyword && keyword !== 'config.json') ? keyword : (urlPath || keyword || 'config.json');
+        
+        log(`Objetivo: ${owner}/${repoName} | Rama: ${targetBranch} | Archivo: ${path}`, 'info');
 
         let items = [];
         let isDirectMatch = false;
 
-        // STRATEGY 1: Direct Content Fetch (Reliable for specific files like config.json)
-        if (keyword.includes('.') && !keyword.includes(' ')) {
-            log(`Intento de búsqueda directa: ${keyword} en rama ${targetBranch}...`, 'info');
-            const path = keyword.startsWith('/') ? keyword.substring(1) : keyword;
-            const directUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${path}?ref=${targetBranch}`;
-            
-            const directRes = await fetch(directUrl, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/vnd.github.v3+json'
-                }
-            });
+        // STRATEGY 1: Direct Content Fetch (The most robust way for private/SSO repos)
+        // Clean path (remove leading slash)
+        const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+        const directUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${cleanPath}?ref=${targetBranch}`;
+        
+        log(`Pidiendo archivo directamente a GitHub API...`, 'info');
+        const directRes = await fetch(directUrl, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        });
 
-            if (directRes.ok) {
-                const item = await directRes.json();
-                if (!Array.isArray(item)) {
-                    log(`✅ ¡Archivo encontrado directamente! (${item.path})`, 'success');
-                    items = [item];
-                    isDirectMatch = true;
-                }
-            } else {
-                log(`Direct fetch respondió: ${directRes.status}`, directRes.status === 404 ? 'warn' : 'error');
-                if (directRes.status === 403) {
-                    log('Sugerencia: El token podría necesitar autorización SSO para esta organización.', 'warn');
-                }
+        if (directRes.ok) {
+            const item = await directRes.json();
+            if (!Array.isArray(item)) {
+                log(`✅ Archivo localizado: ${item.path}`, 'success');
+                items = [item];
+                isDirectMatch = true;
+            }
+        } else {
+            log(`GitHub respondió HTTP ${directRes.status}`, directRes.status === 404 ? 'warn' : 'error');
+            if (directRes.status === 403) {
+                log('Bloqueo 403: Es necesario autorizar el token para SSO en esta organización.', 'error');
             }
         }
 
-        // STRATEGY 2: Search API (If direct fetch failed or keyword is a search term)
+        // STRATEGY 2: Fallback to Search API (Only if not a direct match attempt or direct failed)
         if (items.length === 0) {
-            log(`Iniciando búsqueda global vía API Search para "${keyword}"...`, 'info');
+            log(`Probando búsqueda global para "${keyword}"...`, 'info');
             const query = encodeURIComponent(`${keyword} repo:${owner}/${repoName}`);
             const response = await fetch(`https://api.github.com/search/code?q=${query}`, {
                 headers: {
@@ -223,25 +233,19 @@ async function queryRepo(repo, keyword, token) {
                 }
             });
 
-            if (response.status === 403 || response.status === 401) {
-                log(`Error de API Search: ${response.status} (Probable problema de SSO o Límites)`, 'error');
-            }
-
             if (response.ok) {
                 const data = await response.json();
                 items = data.items || [];
-                log(`API Search devolvió ${items.length} resultados.`, items.length > 0 ? 'success' : 'warn');
-            } else {
-                log(`Error en API Search: ${response.status}`, 'error');
+                log(`Búsqueda encontró ${items.length} coincidencias.`, items.length > 0 ? 'success' : 'warn');
             }
         }
 
-        // 2. Fetch raw contents for found items
+        // FETCH RAW CONTENT
         const fileResults = await Promise.all(items.slice(0, 5).map(async (item) => {
-            log(`Descargando contenido RAW de: ${item.path}...`, 'info');
             try {
-                const contentUrl = item.url;
-                const contentRes = await fetch(contentUrl, {
+                // If it was a direct match, the item from /contents already has everything
+                // We use the raw accept header to get the string content directly.
+                const contentRes = await fetch(item.url, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'Accept': 'application/vnd.github.v3.raw'
@@ -250,13 +254,8 @@ async function queryRepo(repo, keyword, token) {
                 if (!contentRes.ok) throw new Error(`HTTP ${contentRes.status}`);
                 
                 const rawContent = await contentRes.text();
-                log(`✓ Contenido recibido (${item.path})`, 'success');
-                return {
-                    path: item.path,
-                    content: rawContent
-                };
+                return { path: item.path, content: rawContent };
             } catch (e) {
-                log(`Error al descargar ${item.path}: ${e.message}`, 'error');
                 return { path: item.path, error: e.message };
             }
         }));
@@ -271,7 +270,7 @@ async function queryRepo(repo, keyword, token) {
         };
 
     } catch (err) {
-        log(`Error en proceso de repo: ${err.message}`, 'error');
+        log(`Fallo en repo: ${err.message}`, 'error');
         return {
             name: repo.url,
             status: 'error',
@@ -288,9 +287,6 @@ function renderResult(res) {
                 const div = document.createElement('div');
                 div.className = 'echo-container';
                 div.innerHTML = `
-                    <div class="echo-header">
-                        <button class="btn btn-secondary btn-small" onclick="copyToClipboard('${fileId}')">Copiar Contenido</button>
-                    </div>
                     <pre id="${fileId}" class="file-content-raw echo-mode">${f.content ? escapeHtml(f.content) : (f.error || 'Sin contenido')}</pre>
                 `;
                 resultsContainer.appendChild(div);
