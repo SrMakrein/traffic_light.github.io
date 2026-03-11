@@ -180,11 +180,13 @@ async function queryRepo(repo, keyword, token) {
         }
 
         const data = await response.json();
-        let items = data.items;
+        let items = data.items || [];
+        let isFallback = false;
 
         // FALLBACK: If search finds nothing and the keyword looks like a filename (e.g., config.json)
         // or just to be sure we check the target branch directly.
         if (items.length === 0 && (keyword.includes('.') || keyword.startsWith('/'))) {
+            console.log(`Searching directly for ${keyword} in branch ${repo.branch}...`);
             try {
                 const directUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${keyword}?ref=${repo.branch}`;
                 const directRes = await fetch(directUrl, {
@@ -196,12 +198,16 @@ async function queryRepo(repo, keyword, token) {
                 if (directRes.ok) {
                     const item = await directRes.json();
                     if (!Array.isArray(item)) { // It's a single file
+                        console.log('Direct file match found!');
                         items = [{
                             path: item.path,
                             url: item.url,
                             html_url: item.html_url
                         }];
+                        isFallback = true;
                     }
+                } else {
+                    console.warn(`Direct fetch failed with status: ${directRes.status}`);
                 }
             } catch (e) { console.warn("Fallback direct fetch failed", e); }
         }
@@ -209,7 +215,6 @@ async function queryRepo(repo, keyword, token) {
         // 2. Fetch raw contents for found items
         const fileResults = await Promise.all(items.slice(0, 5).map(async (item) => {
             try {
-                // Get raw content using the contents API
                 const contentRes = await fetch(item.url, {
                     headers: {
                         'Authorization': `token ${token}`,
@@ -230,7 +235,8 @@ async function queryRepo(repo, keyword, token) {
             name: `${owner}/${repoName}`,
             branch: repo.branch,
             status: 'success',
-            count: data.total_count,
+            count: items.length,
+            isFallback: isFallback,
             files: fileResults
         };
 
