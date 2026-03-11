@@ -159,12 +159,32 @@ async function queryRepo(repo, keyword, token) {
 
         const data = await response.json();
         
+        // 2. Fetch raw contents for each found file
+        const fileResults = await Promise.all(data.items.slice(0, 5).map(async (item) => {
+            try {
+                // Get raw content using the contents API
+                const contentRes = await fetch(item.url, {
+                    headers: {
+                        'Authorization': `token ${token}`,
+                        'Accept': 'application/vnd.github.v3.raw'
+                    }
+                });
+                const rawContent = await contentRes.text();
+                return {
+                    path: item.path,
+                    content: rawContent
+                };
+            } catch (e) {
+                return { path: item.path, error: 'No se pudo obtener el contenido' };
+            }
+        }));
+        
         return {
             name: `${owner}/${repoName}`,
             branch: repo.branch,
             status: 'success',
             count: data.total_count,
-            files: data.items.map(item => item.path)
+            files: fileResults
         };
 
     } catch (err) {
@@ -185,23 +205,29 @@ function renderResult(res) {
         <div class="repo-result-header">
             <div>
                 <span class="repo-name-tag">${res.name}</span>
-                ${res.branch ? `<small style="margin-left:8px; color:var(--text-dim)">[Rama default* / Target: ${res.branch}]</small>` : ''}
+                ${res.branch ? `<small style="margin-left:8px; color:var(--text-dim)">[Resultados API Search / Target: ${res.branch}]</small>` : ''}
             </div>
             <span class="badge ${res.status === 'success' ? 'badge-success' : 'badge-error'}">
-                ${res.status === 'success' ? `${res.count} Coincidencias` : 'Error'}
+                ${res.status === 'success' ? `${res.count} Encontrados` : 'Error'}
             </span>
         </div>
     `;
 
     if (res.status === 'success') {
         if (res.count > 0) {
-            content += `<ul class="file-matches">`;
+            content += `<div class="file-previews">`;
             res.files.forEach(f => {
-                const url = `https://github.com/${res.name}/blob/${res.branch || 'main'}/${f}`;
-                content += `<li><a href="${url}" target="_blank" style="color:inherit; text-decoration:none">${f}</a></li>`;
+                const url = `https://github.com/${res.name}/blob/${res.branch || 'main'}/${f.path}`;
+                content += `
+                    <div class="file-card">
+                        <div class="file-header">
+                            <a href="${url}" target="_blank" class="file-path">📄 ${f.path}</a>
+                        </div>
+                        <pre class="file-content-raw">${f.content ? escapeHtml(f.content) : (f.error || 'Sin contenido')}</pre>
+                    </div>
+                `;
             });
-            content += `</ul>`;
-            content += `<p style="font-size: 0.7rem; color: #64748b; margin-top: 5px;">* Nota: La API de búsqueda de GitHub consulta principalmente la rama por defecto.</p>`;
+            content += `</div>`;
         } else {
             content += `<p style="font-size: 0.85rem; color: #64748b;">No se encontraron resultados.</p>`;
         }
@@ -211,4 +237,10 @@ function renderResult(res) {
 
     div.innerHTML = content;
     resultsContainer.appendChild(div);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
