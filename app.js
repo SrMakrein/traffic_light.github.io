@@ -158,9 +158,34 @@ async function queryRepo(repo, keyword, token) {
         }
 
         const data = await response.json();
+        let items = data.items;
+
+        // FALLBACK: If search finds nothing and the keyword looks like a filename (e.g., config.json)
+        // or just to be sure we check the target branch directly.
+        if (items.length === 0 && (keyword.includes('.') || keyword.startsWith('/'))) {
+            try {
+                const directUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${keyword}?ref=${repo.branch}`;
+                const directRes = await fetch(directUrl, {
+                    headers: {
+                        'Authorization': `token ${token}`,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+                if (directRes.ok) {
+                    const item = await directRes.json();
+                    if (!Array.isArray(item)) { // It's a single file
+                        items = [{
+                            path: item.path,
+                            url: item.url,
+                            html_url: item.html_url
+                        }];
+                    }
+                }
+            } catch (e) { console.warn("Fallback direct fetch failed", e); }
+        }
         
-        // 2. Fetch raw contents for each found file
-        const fileResults = await Promise.all(data.items.slice(0, 5).map(async (item) => {
+        // 2. Fetch raw contents for found items
+        const fileResults = await Promise.all(items.slice(0, 5).map(async (item) => {
             try {
                 // Get raw content using the contents API
                 const contentRes = await fetch(item.url, {
