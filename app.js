@@ -299,14 +299,16 @@ function renderResult(res) {
     if (res.status === 'success') {
         if (res.count > 0) {
             content += `<div class="file-previews">`;
-            res.files.forEach(f => {
+            res.files.forEach((f, idx) => {
                 const url = `https://github.com/${res.name}/blob/${res.branch}/${f.path}`;
+                const fileId = `file-${res.name.replace(/[^a-z0-9]/gi, '-')}-${idx}`;
                 content += `
                     <div class="file-card">
                         <div class="file-header">
                             <a href="${url}" target="_blank" class="file-path">📄 ${f.path}</a>
+                            <button class="btn btn-secondary btn-small" onclick="copyToClipboard('${fileId}')">Copiar</button>
                         </div>
-                        <pre class="file-content-raw">${f.content ? escapeHtml(f.content) : (f.error || 'Sin contenido')}</pre>
+                        <pre id="${fileId}" class="file-content-raw">${f.content ? escapeHtml(f.content) : (f.error || 'Sin contenido')}</pre>
                     </div>
                 `;
             });
@@ -315,7 +317,11 @@ function renderResult(res) {
             content += `<p style="font-size: 0.85rem; color: #64748b; margin-top: 10px;">No se encontraron resultados para "${keywordInput.value}".</p>`;
         }
     } else {
-        content += `<p style="color: #ef4444; font-size: 0.85rem; margin-top: 10px; border-left: 2px solid #ef4444; padding-left: 10px;">${res.message}</p>`;
+        let msg = res.message;
+        if (msg.includes('403')) {
+            msg = `<strong>Error 403 (Acceso Denegado):</strong> Tu Token parece no tener permisos para esta organización corporativa. <br><br>👉 Por favor, ve a la configuración de tu Token en GitHub y haz clic en <strong>"Configure SSO"</strong> para <strong>planetaformacion</strong>.`;
+        }
+        content += `<p style="color: #ef4444; font-size: 0.88rem; margin-top: 10px; border-left: 3px solid #ef4444; padding: 10px; background: rgba(239, 68, 68, 0.1); border-radius: 0 0.75rem 0.75rem 0;">${msg}</p>`;
     }
 
     div.innerHTML = content;
@@ -326,4 +332,14 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function copyToClipboard(id) {
+    const el = document.getElementById(id);
+    const text = el.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+        alert('Contenido copiado al portapapeles');
+    }).catch(err => {
+        console.error('Error al copiar:', err);
+    });
 }

@@ -104,6 +104,21 @@ header h1 {
     margin-bottom: 1.5rem;
 }
 
+.file-header {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.btn-small {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    border-radius: 0.4rem;
+}
+
 .panel-header h2 {
     font-size: 1.25rem;
     color: var(--text-main);
