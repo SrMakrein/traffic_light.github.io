@@ -1,16 +1,16 @@
 const STORAGE_KEY = 'gh_query_tool_config';
 const STATUS_FILE_PATH = 'status.json';
 const OWN_REPO = 'SrMakrein/traffic_light';
+const REPO_FILTER_KEY = 'gh_query_tool_filter';
 
 // UI Elements
-const reposContainer = document.getElementById('repos-container');
-const addRepoBtn = document.getElementById('add-repo-btn');
 const runSearchBtn = document.getElementById('run-search-btn');
 const resultsPanel = document.getElementById('results-panel');
 const resultsContainer = document.getElementById('results-container');
-const repoTemplate = document.getElementById('repo-item-template');
 const tokenInput = document.getElementById('gh-token');
 const keywordInput = document.getElementById('search-keyword');
+const repoFilterInput = document.getElementById('repo-filter');
+const envSelector = document.getElementById('env-selector');
 const searchStatus = document.getElementById('search-status');
 const debugLog = document.getElementById('debug-log');
 const clearDebugBtn = document.getElementById('clear-debug-btn');
@@ -51,18 +51,19 @@ function log(msg, type = 'info') {
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-    log('Aplicación iniciada (Matrix Mode Enabled)', 'system');
+    log('Monitor de Entornos Iniciado', 'system');
     loadConfig();
-    if (reposContainer.children.length === 0) {
-        addRepoRow();
-    }
 });
 
 // Event Listeners
-addRepoBtn.addEventListener('click', () => addRepoRow());
 runSearchBtn.addEventListener('click', startSearch);
 clearDebugBtn.addEventListener('click', () => {
     debugLog.innerHTML = '<p class="log-entry system">Consola limpiada</p>';
+});
+
+// Save config on change
+[tokenInput, keywordInput, repoFilterInput, envSelector].forEach(input => {
+    input.addEventListener('change', saveConfig);
 });
 
 async function loadSharedStatus(token) {
@@ -78,7 +79,7 @@ async function loadSharedStatus(token) {
             sharedStatus = JSON.parse(content);
             log(`Estados cargados: ${sharedStatus.blocked_repos.length} bloqueos encontrados`, 'success');
         } else {
-            log('No se pudo cargar status.json (¿Es la primera vez?)', 'warn');
+            log('No se pudo cargar status.json (¿Es la primera vez o no existe?)', 'warn');
         }
     } catch (e) {
         log(`Error al cargar estados: ${e.message}`, 'error');
@@ -126,40 +127,12 @@ async function syncStatusWithGitHub(token) {
     }
 }
 
-function addRepoRow(url = '', branch = 'main') {
-    const row = repoTemplate.content.cloneNode(true);
-    const urlInput = row.querySelector('.repo-url');
-    const branchInput = row.querySelector('.repo-branch');
-    const removeBtn = row.querySelector('.remove-repo-btn');
-
-    urlInput.value = url;
-    branchInput.value = branch;
-
-    removeBtn.addEventListener('click', (e) => {
-        e.target.closest('.repo-item').remove();
-        saveConfig();
-    });
-
-    // Save on change
-    [urlInput, branchInput].forEach(input => {
-        input.addEventListener('change', saveConfig);
-    });
-
-    reposContainer.appendChild(row);
-}
-
 function saveConfig() {
-    const repos = [];
-    document.querySelectorAll('.repo-item').forEach(item => {
-        const url = item.querySelector('.repo-url').value.trim();
-        const branch = item.querySelector('.repo-branch').value.trim();
-        if (url) repos.push({ url, branch });
-    });
-
     const config = {
         token: tokenInput.value,
         keyword: keywordInput.value,
-        repos: repos
+        filter: repoFilterInput.value,
+        env: envSelector.value
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
@@ -170,24 +143,19 @@ function loadConfig() {
         const config = JSON.parse(saved);
         tokenInput.value = config.token || '';
         keywordInput.value = config.keyword || 'config.json';
-        
-        if (config.repos && config.repos.length > 0) {
-            reposContainer.innerHTML = '';
-            config.repos.forEach(repo => addRepoRow(repo.url, repo.branch));
-        }
+        repoFilterInput.value = config.filter || '';
+        envSelector.value = config.env || 'all';
     }
 }
 
 async function startSearch() {
     const token = tokenInput.value.trim();
     const keyword = keywordInput.value.trim();
+    const filterText = repoFilterInput.value.trim().toLowerCase();
+    const selectedEnv = envSelector.value;
 
     if (!token) {
         alert('Por favor, ingresa tu GitHub Token.');
-        return;
-    }
-    if (!keyword) {
-        alert('Ingresa una palabra clave o archivo (ej: config.json).');
         return;
     }
 
@@ -197,11 +165,18 @@ async function startSearch() {
     matrixContainer.classList.remove('hidden');
     resultsContainer.innerHTML = '';
     matrixBody.innerHTML = '';
-    searchStatus.innerHTML = '<span style="color:var(--primary)">Ocupado...</span>';
+    searchStatus.innerHTML = '<span style="color:var(--primary)">Escaneando...</span>';
     runSearchBtn.disabled = true;
-    runSearchBtn.innerHTML = '<div class="loading-spinner"></div> Escaneando Matrix...';
+    runSearchBtn.innerHTML = '<div class="loading-spinner"></div> Procesando...';
 
-    log(`Iniciando escaneo de Matrix para ${REPO_LIST.length} repositorios...`, 'system');
+    // 1. Filter repos
+    const filteredRepos = REPO_LIST.filter(name => name.toLowerCase().includes(filterText));
+    // 2. Filter environments
+    const environmentsToScan = selectedEnv === 'all' 
+        ? ENVIRONMENTS 
+        : ENVIRONMENTS.filter(e => e.id === selectedEnv);
+
+    log(`Iniciando escaneo: ${filteredRepos.length} repositorios | ${environmentsToScan.length} entornos.`, 'system');
 
     try {
         log('Validando Token de GitHub...', 'info');
@@ -220,8 +195,8 @@ async function startSearch() {
         await loadSharedStatus(token);
 
         // Execute search for each environment of each repo
-        for (const repoName of REPO_LIST) {
-            for (const env of ENVIRONMENTS) {
+        for (const repoName of filteredRepos) {
+            for (const env of environmentsToScan) {
                 const repoObj = { 
                     url: `https://github.com/planetaformacion/${repoName}`, 
                     branch: env.branch,
@@ -234,14 +209,14 @@ async function startSearch() {
         }
 
         searchStatus.innerHTML = '<span style="color:var(--accent)">Completado</span>';
-        log('Matrix escaneada con éxito', 'system');
+        log('Escaneo de monitor finalizado', 'success');
     } catch (err) {
-        log(`Error Fatal: ${err.message}`, 'error');
-        searchStatus.innerHTML = '<span style="color:#ef4444">Error Fatal</span>';
+        log(`Error: ${err.message}`, 'error');
+        searchStatus.innerHTML = '<span style="color:#ef4444">Fallo de conexión</span>';
         resultsContainer.innerHTML = `<p style="padding:1rem; color:#ef4444; background:rgba(239,68,68,0.1); border-radius:1rem;">Error: ${err.message}</p>`;
     } finally {
         runSearchBtn.disabled = false;
-        runSearchBtn.innerText = 'Iniciar Búsqueda Dinámica';
+        runSearchBtn.innerText = 'Iniciar Escaneo de Monitor';
     }
 }
 
