@@ -16,9 +16,12 @@ const debugLog = document.getElementById('debug-log');
 const clearDebugBtn = document.getElementById('clear-debug-btn');
 const matrixContainer = document.getElementById('matrix-container');
 const matrixBody = document.getElementById('matrix-body');
+const debugToggle = document.getElementById('debug-toggle');
+const debugPanel = document.getElementById('debug-panel');
 
 let sharedStatus = { blocked_repos: [] };
 let statusFileSha = null;
+let searchTimeout = null;
 
 // 29 Repositories detected in screenshots
 const REPO_LIST = [
@@ -59,6 +62,19 @@ document.addEventListener('DOMContentLoaded', () => {
 runSearchBtn.addEventListener('click', startSearch);
 clearDebugBtn.addEventListener('click', () => {
     debugLog.innerHTML = '<p class="log-entry system">Consola limpiada</p>';
+});
+
+// Toggle Debug Panel
+debugToggle.addEventListener('click', () => {
+    debugPanel.classList.toggle('active');
+});
+
+// Reactive Search with Debounce
+[repoFilterInput, envSelector, keywordInput].forEach(input => {
+    input.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(startSearch, 800);
+    });
 });
 
 // Save config on change
