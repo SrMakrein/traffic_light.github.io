@@ -281,51 +281,31 @@ async function queryRepo(repo, keyword, token) {
 }
 
 function renderResult(res) {
-    const div = document.createElement('div');
-    div.className = 'repo-result';
-
-    let content = `
-        <div class="repo-result-header">
-            <div>
-                <span class="repo-name-tag">${res.name}</span>
-                ${res.branch ? `<small style="margin-left:8px; color:var(--text-dim)">[Rama: ${res.branch}]</small>` : ''}
-            </div>
-            <span class="badge ${res.status === 'success' ? 'badge-success' : 'badge-error'}">
-                ${res.status === 'success' ? `${res.count} Encontrados` : 'Error'}
-            </span>
-        </div>
-    `;
-
     if (res.status === 'success') {
         if (res.count > 0) {
-            content += `<div class="file-previews">`;
             res.files.forEach((f, idx) => {
-                const url = `https://github.com/${res.name}/blob/${res.branch}/${f.path}`;
                 const fileId = `file-${res.name.replace(/[^a-z0-9]/gi, '-')}-${idx}`;
-                content += `
-                    <div class="file-card">
-                        <div class="file-header">
-                            <a href="${url}" target="_blank" class="file-path">📄 ${f.path}</a>
-                            <button class="btn btn-secondary btn-small" onclick="copyToClipboard('${fileId}')">Copiar</button>
-                        </div>
-                        <pre id="${fileId}" class="file-content-raw">${f.content ? escapeHtml(f.content) : (f.error || 'Sin contenido')}</pre>
+                const div = document.createElement('div');
+                div.className = 'echo-container';
+                div.innerHTML = `
+                    <div class="echo-header">
+                        <button class="btn btn-secondary btn-small" onclick="copyToClipboard('${fileId}')">Copiar Contenido</button>
                     </div>
+                    <pre id="${fileId}" class="file-content-raw echo-mode">${f.content ? escapeHtml(f.content) : (f.error || 'Sin contenido')}</pre>
                 `;
+                resultsContainer.appendChild(div);
             });
-            content += `</div>`;
-        } else {
-            content += `<p style="font-size: 0.85rem; color: #64748b; margin-top: 10px;">No se encontraron resultados para "${keywordInput.value}".</p>`;
         }
     } else {
+        const div = document.createElement('div');
+        div.className = 'repo-result';
         let msg = res.message;
         if (msg.includes('403')) {
-            msg = `<strong>Error 403 (Acceso Denegado):</strong> Tu Token parece no tener permisos para esta organización corporativa. <br><br>👉 Por favor, ve a la configuración de tu Token en GitHub y haz clic en <strong>"Configure SSO"</strong> para <strong>planetaformacion</strong>.`;
+            msg = `<strong>Error 403 (Acceso Denegado):</strong> Tu Token requiere autorización SSO para <strong>planetaformacion</strong>.`;
         }
-        content += `<p style="color: #ef4444; font-size: 0.88rem; margin-top: 10px; border-left: 3px solid #ef4444; padding: 10px; background: rgba(239, 68, 68, 0.1); border-radius: 0 0.75rem 0.75rem 0;">${msg}</p>`;
+        div.innerHTML = `<p style="color: #ef4444; font-size: 0.88rem; margin-top: 10px; border-left: 3px solid #ef4444; padding: 10px; background: rgba(239, 68, 68, 0.1); border-radius: 0 0.75rem 0.75rem 0;">${msg}</p>`;
+        resultsContainer.appendChild(div);
     }
-
-    div.innerHTML = content;
-    resultsContainer.appendChild(div);
 }
 
 function escapeHtml(text) {
