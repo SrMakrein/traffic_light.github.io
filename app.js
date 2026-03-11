@@ -137,106 +137,109 @@ async function startSearch() {
 async function queryRepo(repo, keyword, token) {
     console.log(`Querying repo: ${repo.url}`);
     try {
-        // Extract owner and repo from URL
-        // Handles formats like https://github.com/owner/repo or owner/repo
-        let owner, repoName;
-        const match = repo.url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+        // Robust owner/repo extraction
+        let owner, repoName, urlBranch;
+        
+        // Remove trailing .git
+        let cleanUrl = repo.url.replace(/\.git$/, '').replace(/\/$/, '');
+        
+        // Match standard github URLs
+        const match = cleanUrl.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\/tree\/([^\/]+))?$/);
         
         if (match) {
             owner = match[1];
-            repoName = match[2].replace('.git', '');
-        } else if (repo.url.includes('/')) {
-            [owner, repoName] = repo.url.split('/');
+            repoName = match[2];
+            urlBranch = match[3];
+        } else if (cleanUrl.includes('/')) {
+            const parts = cleanUrl.split('/').filter(p => p && p !== 'https:' && p !== 'github.com');
+            owner = parts[0];
+            repoName = parts[1];
         } else {
             throw new Error('Formato de URL o nombre de repo inválido');
         }
 
-        console.log(`Consultando ${owner}/${repoName} en rama ${repo.branch}...`);
+        const targetBranch = repo.branch || urlBranch || 'main';
+        console.log(`Target: ${owner}/${repoName} branch: ${targetBranch}`);
 
-        // IMPORTANT NOTE: The GitHub Search API (search/code) searches the DEFAULT branch.
-        // To search specific branches in corporate/private repos, we often need to 
-        // list trees or use the search API and then verify the branch.
-        // For now, we'll perform a broad search and filter/annotate results.
-        
-        const query = encodeURIComponent(`${keyword} repo:${owner}/${repoName}`);
-        const response = await fetch(`https://api.github.com/search/code?q=${query}`, {
-            headers: {
-                'Authorization': `token ${token}`,
-                'Accept': 'application/vnd.github.v3+json'
-            }
-        });
+        let items = [];
+        let isDirectMatch = false;
 
-        if (response.status === 422) {
-            throw new Error('La búsqueda falló (posiblemente el repo no está indexado o el query es inválido)');
-        }
-
-        if (response.status === 404) {
-            throw new Error('Repositorio no encontrado o sin permisos (verifica tu Token corporativo)');
-        }
-
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.message || 'Error en la API de GitHub');
-        }
-
-        const data = await response.json();
-        let items = data.items || [];
-        let isFallback = false;
-
-        // FALLBACK: If search finds nothing and the keyword looks like a filename (e.g., config.json)
-        // or just to be sure we check the target branch directly.
-        if (items.length === 0 && (keyword.includes('.') || keyword.startsWith('/'))) {
-            console.log(`Searching directly for ${keyword} in branch ${repo.branch}...`);
-            try {
-                const directUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${keyword}?ref=${repo.branch}`;
-                const directRes = await fetch(directUrl, {
-                    headers: {
-                        'Authorization': `token ${token}`,
-                        'Accept': 'application/vnd.github.v3+json'
-                    }
-                });
-                if (directRes.ok) {
-                    const item = await directRes.json();
-                    if (!Array.isArray(item)) { // It's a single file
-                        console.log('Direct file match found!');
-                        items = [{
-                            path: item.path,
-                            url: item.url,
-                            html_url: item.html_url
-                        }];
-                        isFallback = true;
-                    }
-                } else {
-                    console.warn(`Direct fetch failed with status: ${directRes.status}`);
+        // STRATEGY 1: Direct Content Fetch (Reliable for specific files like config.json)
+        if (keyword.includes('.') && !keyword.includes(' ')) {
+            console.log(`Trying direct fetch for ${keyword}...`);
+            const directUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${keyword.startsWith('/') ? keyword.substring(1) : keyword}?ref=${targetBranch}`;
+            
+            const directRes = await fetch(directUrl, {
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Accept': 'application/vnd.github.v3+json'
                 }
-            } catch (e) { console.warn("Fallback direct fetch failed", e); }
+            });
+
+            if (directRes.ok) {
+                const item = await directRes.json();
+                if (!Array.isArray(item)) {
+                    console.log('Direct file match found!');
+                    items = [item];
+                    isDirectMatch = true;
+                }
+            } else if (directRes.status === 404) {
+                console.warn(`File not found directly. Status: ${directRes.status}. This is normal if it doesn't exist at this exact path.`);
+            } else {
+                console.warn(`Direct fetch failed with status: ${directRes.status}`);
+            }
         }
-        
+
+        // STRATEGY 2: Search API (If direct fetch failed or keyword is a search term)
+        if (items.length === 0) {
+            console.log(`Falling back to Search API for "${keyword}"...`);
+            const query = encodeURIComponent(`${keyword} repo:${owner}/${repoName}`);
+            const response = await fetch(`https://api.github.com/search/code?q=${query}`, {
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (response.status === 403 || response.status === 401) {
+                throw new Error('Error de autenticación. Verifica si el token requiere autorización SSO para esta organización.');
+            }
+
+            if (response.ok) {
+                const data = await response.json();
+                items = data.items || [];
+            }
+        }
+
         // 2. Fetch raw contents for found items
         const fileResults = await Promise.all(items.slice(0, 5).map(async (item) => {
             try {
-                const contentRes = await fetch(item.url, {
+                // Use the same target branch for the raw content if it was a direct match
+                const contentUrl = item.url;
+                const contentRes = await fetch(contentUrl, {
                     headers: {
                         'Authorization': `token ${token}`,
                         'Accept': 'application/vnd.github.v3.raw'
                     }
                 });
+                if (!contentRes.ok) throw new Error('No se pudo obtener el contenido RAW');
+                
                 const rawContent = await contentRes.text();
                 return {
                     path: item.path,
                     content: rawContent
                 };
             } catch (e) {
-                return { path: item.path, error: 'No se pudo obtener el contenido' };
+                return { path: item.path, error: e.message };
             }
         }));
         
         return {
             name: `${owner}/${repoName}`,
-            branch: repo.branch,
+            branch: targetBranch,
             status: 'success',
             count: items.length,
-            isFallback: isFallback,
+            isDirectMatch: isDirectMatch,
             files: fileResults
         };
 
@@ -258,7 +261,7 @@ function renderResult(res) {
         <div class="repo-result-header">
             <div>
                 <span class="repo-name-tag">${res.name}</span>
-                ${res.branch ? `<small style="margin-left:8px; color:var(--text-dim)">[Resultados API Search / Target: ${res.branch}]</small>` : ''}
+                ${res.branch ? `<small style="margin-left:8px; color:var(--text-dim)">[Rama: ${res.branch}]</small>` : ''}
             </div>
             <span class="badge ${res.status === 'success' ? 'badge-success' : 'badge-error'}">
                 ${res.status === 'success' ? `${res.count} Encontrados` : 'Error'}
@@ -270,7 +273,7 @@ function renderResult(res) {
         if (res.count > 0) {
             content += `<div class="file-previews">`;
             res.files.forEach(f => {
-                const url = `https://github.com/${res.name}/blob/${res.branch || 'main'}/${f.path}`;
+                const url = `https://github.com/${res.name}/blob/${res.branch}/${f.path}`;
                 content += `
                     <div class="file-card">
                         <div class="file-header">
@@ -282,10 +285,10 @@ function renderResult(res) {
             });
             content += `</div>`;
         } else {
-            content += `<p style="font-size: 0.85rem; color: #64748b;">No se encontraron resultados.</p>`;
+            content += `<p style="font-size: 0.85rem; color: #64748b; margin-top: 10px;">No se encontraron resultados para "${keywordInput.value}".</p>`;
         }
     } else {
-        content += `<p style="color: #ef4444; font-size: 0.85rem;">${res.message}</p>`;
+        content += `<p style="color: #ef4444; font-size: 0.85rem; margin-top: 10px; border-left: 2px solid #ef4444; padding-left: 10px;">${res.message}</p>`;
     }
 
     div.innerHTML = content;
