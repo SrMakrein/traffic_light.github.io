@@ -327,3 +327,27 @@ small {
     white-space: pre-wrap;
     background: #0b1120;
 }
+
+.debug-log {
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 0.75rem;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.log-entry {
+    border-left: 2px solid transparent;
+    padding-left: 0.5rem;
+}
+
+.log-entry.info { color: #94a3b8; border-color: #64748b; }
+.log-entry.success { color: #10b981; border-color: #10b981; }
+.log-entry.error { color: #ef4444; border-color: #ef4444; }
+.log-entry.system { color: #818cf8; font-style: italic; }
+.log-entry.warn { color: #f59e0b; border-color: #f59e0b; }

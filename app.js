@@ -10,10 +10,23 @@ const repoTemplate = document.getElementById('repo-item-template');
 const tokenInput = document.getElementById('gh-token');
 const keywordInput = document.getElementById('search-keyword');
 const searchStatus = document.getElementById('search-status');
+const debugLog = document.getElementById('debug-log');
+const clearDebugBtn = document.getElementById('clear-debug-btn');
+
+// Logger system
+function log(msg, type = 'info') {
+    const entry = document.createElement('p');
+    entry.className = `log-entry ${type}`;
+    const time = new Date().toLocaleTimeString();
+    entry.innerText = `[${time}] ${msg}`;
+    debugLog.appendChild(entry);
+    debugLog.scrollTop = debugLog.scrollHeight;
+    console.log(`[${type}] ${msg}`);
+}
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('App Initialized');
+    log('Aplicación iniciada', 'system');
     loadConfig();
     if (reposContainer.children.length === 0) {
         addRepoRow();
@@ -23,6 +36,9 @@ document.addEventListener('DOMContentLoaded', () => {
 // Event Listeners
 addRepoBtn.addEventListener('click', () => addRepoRow());
 runSearchBtn.addEventListener('click', startSearch);
+clearDebugBtn.addEventListener('click', () => {
+    debugLog.innerHTML = '<p class="log-entry system">Consola limpiada</p>';
+});
 
 function addRepoRow(url = '', branch = 'main') {
     const row = repoTemplate.content.cloneNode(true);
@@ -108,24 +124,28 @@ async function startSearch() {
     runSearchBtn.disabled = true;
     runSearchBtn.innerHTML = '<div class="loading-spinner"></div> Buscando...';
 
+    log(`Iniciando búsqueda para "${keyword}" en ${repos.length} repositorios`, 'system');
+
     try {
-        console.log('Validating token...');
+        log('Validando Token de GitHub...', 'info');
         const userRes = await fetch('https://api.github.com/user', {
-            headers: { 'Authorization': `token ${token}` }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
         
         if (!userRes.ok) {
-            throw new Error(`Token inválido o expirado (${userRes.status}). Verifica tus permisos.`);
+            log(`Error de Validación: ${userRes.status}`, 'error');
+            throw new Error(`Token inválido o expirado (${userRes.status}). Verifica tus permisos y SSO.`);
         }
         const userData = await userRes.json();
-        console.log('Authenticated as:', userData.login);
+        log(`Autenticado como: ${userData.login}`, 'success');
 
         const results = await Promise.all(repos.map(repo => queryRepo(repo, keyword, token)));
         
         results.forEach(res => renderResult(res));
         searchStatus.innerHTML = '<span style="color:var(--accent)">Completado</span>';
+        log('Búsqueda finalizada con éxito', 'system');
     } catch (err) {
-        console.error('Search Error:', err);
+        log(`Error Fatal: ${err.message}`, 'error');
         searchStatus.innerHTML = '<span style="color:#ef4444">Error Fatal</span>';
         resultsContainer.innerHTML = `<p style="padding:1rem; color:#ef4444; background:rgba(239,68,68,0.1); border-radius:1rem;">Error: ${err.message}</p>`;
     } finally {
@@ -135,13 +155,13 @@ async function startSearch() {
 }
 
 async function queryRepo(repo, keyword, token) {
-    console.log(`Querying repo: ${repo.url}`);
+    log(`Consultando repo: ${repo.url}`, 'info');
     try {
         // Robust owner/repo extraction
         let owner, repoName, urlBranch;
         
-        // Remove trailing .git
-        let cleanUrl = repo.url.replace(/\.git$/, '').replace(/\/$/, '');
+        // Remove trailing .git and spaces
+        let cleanUrl = repo.url.trim().replace(/\.git$/, '').replace(/\/$/, '');
         
         // Match standard github URLs
         const match = cleanUrl.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\/tree\/([^\/]+))?$/);
@@ -152,26 +172,27 @@ async function queryRepo(repo, keyword, token) {
             urlBranch = match[3];
         } else if (cleanUrl.includes('/')) {
             const parts = cleanUrl.split('/').filter(p => p && p !== 'https:' && p !== 'github.com');
-            owner = parts[0];
-            repoName = parts[1];
+            owner = parts[parts.length - 2];
+            repoName = parts[parts.length - 1];
         } else {
             throw new Error('Formato de URL o nombre de repo inválido');
         }
 
         const targetBranch = repo.branch || urlBranch || 'main';
-        console.log(`Target: ${owner}/${repoName} branch: ${targetBranch}`);
+        log(`Repositorio detectado: ${owner}/${repoName} (Rama: ${targetBranch})`, 'info');
 
         let items = [];
         let isDirectMatch = false;
 
         // STRATEGY 1: Direct Content Fetch (Reliable for specific files like config.json)
         if (keyword.includes('.') && !keyword.includes(' ')) {
-            console.log(`Trying direct fetch for ${keyword}...`);
-            const directUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${keyword.startsWith('/') ? keyword.substring(1) : keyword}?ref=${targetBranch}`;
+            log(`Intento de búsqueda directa: ${keyword} en rama ${targetBranch}...`, 'info');
+            const path = keyword.startsWith('/') ? keyword.substring(1) : keyword;
+            const directUrl = `https://api.github.com/repos/${owner}/${repoName}/contents/${path}?ref=${targetBranch}`;
             
             const directRes = await fetch(directUrl, {
                 headers: {
-                    'Authorization': `token ${token}`,
+                    'Authorization': `Bearer ${token}`,
                     'Accept': 'application/vnd.github.v3+json'
                 }
             });
@@ -179,57 +200,63 @@ async function queryRepo(repo, keyword, token) {
             if (directRes.ok) {
                 const item = await directRes.json();
                 if (!Array.isArray(item)) {
-                    console.log('Direct file match found!');
+                    log(`✅ ¡Archivo encontrado directamente! (${item.path})`, 'success');
                     items = [item];
                     isDirectMatch = true;
                 }
-            } else if (directRes.status === 404) {
-                console.warn(`File not found directly. Status: ${directRes.status}. This is normal if it doesn't exist at this exact path.`);
             } else {
-                console.warn(`Direct fetch failed with status: ${directRes.status}`);
+                log(`Direct fetch respondió: ${directRes.status}`, directRes.status === 404 ? 'warn' : 'error');
+                if (directRes.status === 403) {
+                    log('Sugerencia: El token podría necesitar autorización SSO para esta organización.', 'warn');
+                }
             }
         }
 
         // STRATEGY 2: Search API (If direct fetch failed or keyword is a search term)
         if (items.length === 0) {
-            console.log(`Falling back to Search API for "${keyword}"...`);
+            log(`Iniciando búsqueda global vía API Search para "${keyword}"...`, 'info');
             const query = encodeURIComponent(`${keyword} repo:${owner}/${repoName}`);
             const response = await fetch(`https://api.github.com/search/code?q=${query}`, {
                 headers: {
-                    'Authorization': `token ${token}`,
+                    'Authorization': `Bearer ${token}`,
                     'Accept': 'application/vnd.github.v3+json'
                 }
             });
 
             if (response.status === 403 || response.status === 401) {
-                throw new Error('Error de autenticación. Verifica si el token requiere autorización SSO para esta organización.');
+                log(`Error de API Search: ${response.status} (Probable problema de SSO o Límites)`, 'error');
             }
 
             if (response.ok) {
                 const data = await response.json();
                 items = data.items || [];
+                log(`API Search devolvió ${items.length} resultados.`, items.length > 0 ? 'success' : 'warn');
+            } else {
+                log(`Error en API Search: ${response.status}`, 'error');
             }
         }
 
         // 2. Fetch raw contents for found items
         const fileResults = await Promise.all(items.slice(0, 5).map(async (item) => {
+            log(`Descargando contenido RAW de: ${item.path}...`, 'info');
             try {
-                // Use the same target branch for the raw content if it was a direct match
                 const contentUrl = item.url;
                 const contentRes = await fetch(contentUrl, {
                     headers: {
-                        'Authorization': `token ${token}`,
+                        'Authorization': `Bearer ${token}`,
                         'Accept': 'application/vnd.github.v3.raw'
                     }
                 });
-                if (!contentRes.ok) throw new Error('No se pudo obtener el contenido RAW');
+                if (!contentRes.ok) throw new Error(`HTTP ${contentRes.status}`);
                 
                 const rawContent = await contentRes.text();
+                log(`✓ Contenido recibido (${item.path})`, 'success');
                 return {
                     path: item.path,
                     content: rawContent
                 };
             } catch (e) {
+                log(`Error al descargar ${item.path}: ${e.message}`, 'error');
                 return { path: item.path, error: e.message };
             }
         }));
@@ -244,7 +271,7 @@ async function queryRepo(repo, keyword, token) {
         };
 
     } catch (err) {
-        console.error(err);
+        log(`Error en proceso de repo: ${err.message}`, 'error');
         return {
             name: repo.url,
             status: 'error',
