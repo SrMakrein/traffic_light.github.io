@@ -348,6 +348,93 @@ small {
     width: 100%;
 }
 
+/* Matrix Table Styles */
+.matrix-container {
+    overflow-x: auto;
+    width: 100%;
+    margin-top: 1rem;
+}
+
+.matrix-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 0.5rem;
+    color: var(--text-main);
+}
+
+.matrix-table th {
+    text-align: left;
+    padding: 1rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.matrix-table tr {
+    transition: all 0.2s ease;
+}
+
+.matrix-table td {
+    padding: 1rem;
+    background: var(--card-bg);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.matrix-table td:first-child {
+    border-left: 1px solid var(--border);
+    border-radius: 0.75rem 0 0 0.75rem;
+}
+
+.matrix-table td:last-child {
+    border-right: 1px solid var(--border);
+    border-radius: 0 0.75rem 0.75rem 0;
+}
+
+.repo-link {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.repo-link:hover {
+    text-decoration: underline;
+}
+
+.env-tag {
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.4rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.env-qa { background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(129, 140, 248, 0.3); }
+.env-uat { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); }
+.env-pro { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(251, 191, 36, 0.3); }
+
+.version-cell {
+    font-family: 'Monaco', monospace;
+    font-size: 0.85rem;
+}
+
+/* Blocked state */
+.row-blocked td {
+    background: rgba(239, 68, 68, 0.15) !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+    opacity: 0.8;
+}
+
+.row-blocked .repo-link, .row-blocked .version-cell {
+    color: #fca5a5 !important;
+}
+
+.row-blocked .btn-block {
+    background: #ef4444 !important;
+    color: white !important;
+}
+
 .echo-header {
     display: flex;
     justify-content: flex-end;

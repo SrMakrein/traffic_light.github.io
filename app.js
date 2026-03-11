@@ -12,6 +12,26 @@ const keywordInput = document.getElementById('search-keyword');
 const searchStatus = document.getElementById('search-status');
 const debugLog = document.getElementById('debug-log');
 const clearDebugBtn = document.getElementById('clear-debug-btn');
+const matrixContainer = document.getElementById('matrix-container');
+const matrixBody = document.getElementById('matrix-body');
+
+// 29 Repositories detected in screenshots
+const REPO_LIST = [
+    'core.sb.ege.fr', 'sb.core', 'core.sb.esd.com', 'core.sb.unie.es', 
+    'core.sb.planetafp.es', 'core.sb.eaebarcelona.com', 'core.sb.universidadviu.com', 
+    'core.sb.universitatcarlemany.com', 'core.sb.sportsmanagementschool.fr', 'core.sb.supdeluxe.com', 
+    'core.sb.planetaformacion.com', 'core.sb.obsbusiness.school', 'core.sb.eslsca.ma', 
+    'core.sb.ifp.es', 'core.sb.eslsca.fr', 'core.sb.eae.es', 'core.sb.edumed.ma', 
+    'core.sb.edcparis.edu', 'core.sb.eaemadrid.com', 'core.sb.biu.us', 'core.sb.bch.com', 
+    'api.captacion.leads', 'n2php', 'sbetl', 'pubsubscriber', 'sce-php', 
+    'sb.development.core', 'sb.development.site', 'sb.eaemadrid.com'
+];
+
+const ENVIRONMENTS = [
+    { id: 'qa', label: 'QA', branch: 'qa', class: 'env-qa' },
+    { id: 'uat', label: 'UAT', branch: 'uat', class: 'env-uat' },
+    { id: 'pro', label: 'PRO', branch: 'master', class: 'env-pro' }
+];
 
 // Logger system
 function log(msg, type = 'info') {
@@ -26,7 +46,7 @@ function log(msg, type = 'info') {
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
-    log('Aplicación iniciada', 'system');
+    log('Aplicación iniciada (Matrix Mode Enabled)', 'system');
     loadConfig();
     if (reposContainer.children.length === 0) {
         addRepoRow();
@@ -95,36 +115,27 @@ function loadConfig() {
 async function startSearch() {
     const token = tokenInput.value.trim();
     const keyword = keywordInput.value.trim();
-    const repos = [];
-
-    document.querySelectorAll('.repo-item').forEach(item => {
-        const url = item.querySelector('.repo-url').value.trim();
-        const branch = item.querySelector('.repo-branch').value.trim();
-        if (url) repos.push({ url, branch });
-    });
 
     if (!token) {
         alert('Por favor, ingresa tu GitHub Token.');
         return;
     }
     if (!keyword) {
-        alert('Ingresa una palabra clave a buscar.');
-        return;
-    }
-    if (repos.length === 0) {
-        alert('Añade al menos un repositorio.');
+        alert('Ingresa una palabra clave o archivo (ej: config.json).');
         return;
     }
 
     saveConfig();
     
     resultsPanel.classList.remove('hidden');
+    matrixContainer.classList.remove('hidden');
     resultsContainer.innerHTML = '';
+    matrixBody.innerHTML = '';
     searchStatus.innerHTML = '<span style="color:var(--primary)">Ocupado...</span>';
     runSearchBtn.disabled = true;
-    runSearchBtn.innerHTML = '<div class="loading-spinner"></div> Buscando...';
+    runSearchBtn.innerHTML = '<div class="loading-spinner"></div> Escaneando Matrix...';
 
-    log(`Iniciando búsqueda para "${keyword}" en ${repos.length} repositorios`, 'system');
+    log(`Iniciando escaneo de Matrix para ${REPO_LIST.length} repositorios...`, 'system');
 
     try {
         log('Validando Token de GitHub...', 'info');
@@ -134,16 +145,27 @@ async function startSearch() {
         
         if (!userRes.ok) {
             log(`Error de Validación: ${userRes.status}`, 'error');
-            throw new Error(`Token inválido o expirado (${userRes.status}). Verifica tus permisos y SSO.`);
+            throw new Error(`Token inválido o expirado (${userRes.status}).`);
         }
         const userData = await userRes.json();
-        log(`Autenticado como: ${userData.login}`, 'success');
+        log(`Autorizado como: ${userData.login}`, 'success');
 
-        const results = await Promise.all(repos.map(repo => queryRepo(repo, keyword, token)));
-        
-        results.forEach(res => renderResult(res));
+        // Execute search for each environment of each repo
+        for (const repoName of REPO_LIST) {
+            for (const env of ENVIRONMENTS) {
+                const repoObj = { 
+                    url: `https://github.com/planetaformacion/${repoName}`, 
+                    branch: env.branch,
+                    envLabel: env.label,
+                    envClass: env.class
+                };
+                const result = await queryRepo(repoObj, keyword, token);
+                renderTableRow(result, repoObj);
+            }
+        }
+
         searchStatus.innerHTML = '<span style="color:var(--accent)">Completado</span>';
-        log('Búsqueda finalizada con éxito', 'system');
+        log('Matrix escaneada con éxito', 'system');
     } catch (err) {
         log(`Error Fatal: ${err.message}`, 'error');
         searchStatus.innerHTML = '<span style="color:#ef4444">Error Fatal</span>';
@@ -152,6 +174,45 @@ async function startSearch() {
         runSearchBtn.disabled = false;
         runSearchBtn.innerText = 'Iniciar Búsqueda Dinámica';
     }
+}
+
+function renderTableRow(res, repoInfo) {
+    const tr = document.createElement('tr');
+    tr.id = `row-${res.name.replace(/[^a-z0-9]/gi, '-')}-${repoInfo.envLabel.toLowerCase()}`;
+    
+    let version = '---';
+    if (res.status === 'success' && res.files && res.files.length > 0) {
+        const content = res.files[0].content;
+        try {
+            // Priority: Parse as JSON and find "site-builder"
+            const data = JSON.parse(content);
+            version = data['site-builder'] || data['version'] || 'Found';
+        } catch (e) {
+            // Regex fallback if not valid JSON
+            const match = content.match(/"site-builder"\s*:\s*"([^"]+)"/);
+            version = match ? match[1] : (content.length > 20 ? 'Content Found' : content);
+        }
+    } else if (res.status === 'error' || res.count === 0) {
+        version = res.status === 'error' ? 'Error' : 'Not Found';
+    }
+
+    tr.innerHTML = `
+        <td><a href="${repoInfo.url}" target="_blank" class="repo-link">${res.name || repoInfo.url}</a></td>
+        <td><span class="env-tag ${repoInfo.envClass}">${repoInfo.envLabel}</span></td>
+        <td class="version-cell">${escapeHtml(version)}</td>
+        <td>
+            <button class="btn btn-secondary btn-small btn-block" onclick="toggleBlockRow('${tr.id}')">Bloquear</button>
+        </td>
+    `;
+
+    matrixBody.appendChild(tr);
+}
+
+function toggleBlockRow(rowId) {
+    const row = document.getElementById(rowId);
+    row.classList.toggle('row-blocked');
+    const btn = row.querySelector('.btn-block');
+    btn.innerText = row.classList.contains('row-blocked') ? 'Desbloquear' : 'Bloquear';
 }
 
 async function queryRepo(repo, keyword, token) {
