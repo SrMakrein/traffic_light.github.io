@@ -9,9 +9,11 @@ const resultsContainer = document.getElementById('results-container');
 const repoTemplate = document.getElementById('repo-item-template');
 const tokenInput = document.getElementById('gh-token');
 const keywordInput = document.getElementById('search-keyword');
+const searchStatus = document.getElementById('search-status');
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('App Initialized');
     loadConfig();
     if (reposContainer.children.length === 0) {
         addRepoRow();
@@ -102,18 +104,38 @@ async function startSearch() {
     
     resultsPanel.classList.remove('hidden');
     resultsContainer.innerHTML = '';
+    searchStatus.innerHTML = '<span style="color:var(--primary)">Ocupado...</span>';
     runSearchBtn.disabled = true;
     runSearchBtn.innerHTML = '<div class="loading-spinner"></div> Buscando...';
 
-    const results = await Promise.all(repos.map(repo => queryRepo(repo, keyword, token)));
+    try {
+        console.log('Validating token...');
+        const userRes = await fetch('https://api.github.com/user', {
+            headers: { 'Authorization': `token ${token}` }
+        });
+        
+        if (!userRes.ok) {
+            throw new Error(`Token inválido o expirado (${userRes.status}). Verifica tus permisos.`);
+        }
+        const userData = await userRes.json();
+        console.log('Authenticated as:', userData.login);
 
-    runSearchBtn.disabled = false;
-    runSearchBtn.innerText = 'Iniciar Búsqueda Dinámica';
-
-    results.forEach(res => renderResult(res));
+        const results = await Promise.all(repos.map(repo => queryRepo(repo, keyword, token)));
+        
+        results.forEach(res => renderResult(res));
+        searchStatus.innerHTML = '<span style="color:var(--accent)">Completado</span>';
+    } catch (err) {
+        console.error('Search Error:', err);
+        searchStatus.innerHTML = '<span style="color:#ef4444">Error Fatal</span>';
+        resultsContainer.innerHTML = `<p style="padding:1rem; color:#ef4444; background:rgba(239,68,68,0.1); border-radius:1rem;">Error: ${err.message}</p>`;
+    } finally {
+        runSearchBtn.disabled = false;
+        runSearchBtn.innerText = 'Iniciar Búsqueda Dinámica';
+    }
 }
 
 async function queryRepo(repo, keyword, token) {
+    console.log(`Querying repo: ${repo.url}`);
     try {
         // Extract owner and repo from URL
         // Handles formats like https://github.com/owner/repo or owner/repo
