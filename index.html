@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Dynamic Query Tool - Traffic Light</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <main class="container">
+        <header>
+            <h1>GitHub <span class="gradient-text">Dynamic Query</span></h1>
+            <p class="subtitle">Consulta contenido en múltiples repositorios y ramas simultáneamente.</p>
+        </header>
+
+        <section class="config-panel glass">
+            <div class="panel-header">
+                <h2>Configuración General</h2>
+            </div>
+            <div class="input-group">
+                <label for="gh-token">GitHub Personal Access Token (Classic)</label>
+                <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+                <small>Tu token se guarda localmente en el navegador y nunca se envía a ningún servidor externo.</small>
+            </div>
+            <div class="input-group">
+                <label for="search-keyword">Palabra Clave o Archivo (ej: config.json)</label>
+                <input type="text" id="search-keyword" placeholder="Nombre de archivo o cadena de texto..." value="config.json">
+            </div>
+        </section>
+
+        <section class="repos-panel glass">
+            <div class="panel-header">
+                <h2>Repositorios a Consultar</h2>
+                <button id="add-repo-btn" class="btn btn-secondary">Añadir Repositorio</button>
+            </div>
+            <div id="repos-container" class="repos-list">
+                <!-- Se llenará dinámicamente -->
+            </div>
+        </section>
+
+        <footer class="actions">
+            <button id="run-search-btn" class="btn btn-primary">Iniciar Búsqueda Dinámica</button>
+        </footer>
+
+        <section id="results-panel" class="results-panel glass hidden">
+            <div class="panel-header">
+                <h2>Resultados de la Consulta</h2>
+                <div id="search-status" class="status-indicator"></div>
+            </div>
+            <div id="results-container" class="results-list">
+                <!-- Resultados dinámicos -->
+            </div>
+        </section>
+    </main>
+
+    <template id="repo-item-template">
+        <div class="repo-item">
+            <input type="text" class="repo-url" placeholder="https://github.com/usuario/repo" value="">
+            <input type="text" class="repo-branch" placeholder="rama (ej: main)" value="main">
+            <button class="remove-repo-btn">×</button>
+        </div>
+    </template>
+
+    <script src="app.js"></script>
+</body>
+</html>
