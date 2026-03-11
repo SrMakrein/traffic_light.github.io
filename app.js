@@ -116,16 +116,26 @@ async function startSearch() {
 async function queryRepo(repo, keyword, token) {
     try {
         // Extract owner and repo from URL
-        // Expected: https://github.com/owner/repo
+        // Handles formats like https://github.com/owner/repo or owner/repo
+        let owner, repoName;
         const match = repo.url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-        if (!match) throw new Error('Formato de URL inválido');
+        
+        if (match) {
+            owner = match[1];
+            repoName = match[2].replace('.git', '');
+        } else if (repo.url.includes('/')) {
+            [owner, repoName] = repo.url.split('/');
+        } else {
+            throw new Error('Formato de URL o nombre de repo inválido');
+        }
 
-        const owner = match[1];
-        const repoName = match[2].replace('.git', '');
+        console.log(`Consultando ${owner}/${repoName} en rama ${repo.branch}...`);
 
-        // 1. Search for code matching the keyword
-        // Using GitHub Code Search API
-        // https://docs.github.com/en/rest/search/search?apiVersion=2022-11-28#search-code
+        // IMPORTANT NOTE: The GitHub Search API (search/code) searches the DEFAULT branch.
+        // To search specific branches in corporate/private repos, we often need to 
+        // list trees or use the search API and then verify the branch.
+        // For now, we'll perform a broad search and filter/annotate results.
+        
         const query = encodeURIComponent(`${keyword} repo:${owner}/${repoName}`);
         const response = await fetch(`https://api.github.com/search/code?q=${query}`, {
             headers: {
@@ -133,6 +143,14 @@ async function queryRepo(repo, keyword, token) {
                 'Accept': 'application/vnd.github.v3+json'
             }
         });
+
+        if (response.status === 422) {
+            throw new Error('La búsqueda falló (posiblemente el repo no está indexado o el query es inválido)');
+        }
+
+        if (response.status === 404) {
+            throw new Error('Repositorio no encontrado o sin permisos (verifica tu Token corporativo)');
+        }
 
         if (!response.ok) {
             const err = await response.json();
@@ -142,7 +160,8 @@ async function queryRepo(repo, keyword, token) {
         const data = await response.json();
         
         return {
-            name: repoName,
+            name: `${owner}/${repoName}`,
+            branch: repo.branch,
             status: 'success',
             count: data.total_count,
             files: data.items.map(item => item.path)
@@ -150,9 +169,8 @@ async function queryRepo(repo, keyword, token) {
 
     } catch (err) {
         console.error(err);
-        const repoName = repo.url.split('/').pop() || 'Repo';
         return {
-            name: repoName,
+            name: repo.url,
             status: 'error',
             message: err.message
         };
@@ -165,7 +183,10 @@ function renderResult(res) {
 
     let content = `
         <div class="repo-result-header">
-            <span class="repo-name-tag">${res.name}</span>
+            <div>
+                <span class="repo-name-tag">${res.name}</span>
+                ${res.branch ? `<small style="margin-left:8px; color:var(--text-dim)">[Rama default* / Target: ${res.branch}]</small>` : ''}
+            </div>
             <span class="badge ${res.status === 'success' ? 'badge-success' : 'badge-error'}">
                 ${res.status === 'success' ? `${res.count} Coincidencias` : 'Error'}
             </span>
@@ -175,8 +196,12 @@ function renderResult(res) {
     if (res.status === 'success') {
         if (res.count > 0) {
             content += `<ul class="file-matches">`;
-            res.files.forEach(f => content += `<li>${f}</li>`);
+            res.files.forEach(f => {
+                const url = `https://github.com/${res.name}/blob/${res.branch || 'main'}/${f}`;
+                content += `<li><a href="${url}" target="_blank" style="color:inherit; text-decoration:none">${f}</a></li>`;
+            });
             content += `</ul>`;
+            content += `<p style="font-size: 0.7rem; color: #64748b; margin-top: 5px;">* Nota: La API de búsqueda de GitHub consulta principalmente la rama por defecto.</p>`;
         } else {
             content += `<p style="font-size: 0.85rem; color: #64748b;">No se encontraron resultados.</p>`;
         }
