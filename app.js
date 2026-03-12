@@ -18,6 +18,9 @@ const matrixContainer = document.getElementById('matrix-container');
 const matrixBody = document.getElementById('matrix-body');
 const debugToggle = document.getElementById('debug-toggle');
 const debugPanel = document.getElementById('debug-panel');
+const configToggle = document.getElementById('config-toggle');
+const configModal = document.getElementById('config-modal');
+const configClose = document.getElementById('config-close');
 
 let sharedStatus = { blocked_repos: [] };
 let statusFileSha = null;
@@ -56,7 +59,28 @@ function log(msg, type = 'info') {
 document.addEventListener('DOMContentLoaded', () => {
     log('Monitor de Entornos Iniciado', 'system');
     loadConfig();
+    initializeTabNavigation();
 });
+
+// Tab Navigation
+function initializeTabNavigation() {
+    const tabCards = document.querySelectorAll('.tab-card');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabCards.forEach(card => {
+        card.addEventListener('click', () => {
+            const tabName = card.dataset.tab;
+            
+            // Remove active class from all tabs
+            tabCards.forEach(c => c.classList.remove('active'));
+            tabContents.forEach(c => c.classList.remove('active'));
+            
+            // Add active class to clicked tab
+            card.classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        });
+    });
+}
 
 // Event Listeners
 runSearchBtn.addEventListener('click', startSearch);
@@ -67,6 +91,29 @@ clearDebugBtn.addEventListener('click', () => {
 // Toggle Debug Panel
 debugToggle.addEventListener('click', () => {
     debugPanel.classList.toggle('active');
+});
+
+// Toggle Config Modal
+configToggle.addEventListener('click', () => {
+    configModal.classList.remove('hidden');
+});
+
+configClose.addEventListener('click', () => {
+    configModal.classList.add('hidden');
+});
+
+// Close modal when clicking outside
+configModal.addEventListener('click', (e) => {
+    if (e.target === configModal) {
+        configModal.classList.add('hidden');
+    }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !configModal.classList.contains('hidden')) {
+        configModal.classList.add('hidden');
+    }
 });
 
 // Reactive Search with Debounce

@@ -16,74 +16,128 @@
         <div class="blob blob-3"></div>
     </div>
 
+    <button id="config-toggle" class="config-toggle" title="Configuración">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m2.12 2.12l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m2.12-2.12l4.24-4.24M19.78 19.78l-4.24-4.24m-2.12-2.12l-4.24-4.24"></path></svg>
+    </button>
+
+    <div id="config-modal" class="config-modal hidden">
+        <div class="config-modal-content glass">
+            <div class="modal-header">
+                <h2>Configuración del Monitor</h2>
+                <button id="config-close" class="close-btn" title="Cerrar">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="gh-token">GitHub Personal Access Token</label>
+                        <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <label for="search-keyword">Palabra Clave (Archivo)</label>
+                        <input type="text" id="search-keyword" placeholder="config.json" value="config.json">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <main class="container">
         <header>
             <h1>GitHub <span class="gradient-text">Dynamic Query</span></h1>
             <p class="subtitle">Consulta contenido en múltiples repositorios y ramas simultáneamente.</p>
         </header>
 
-        <section class="config-panel glass">
-            <div class="panel-header">
-                <h2>Configuración del Monitor</h2>
-            </div>
-            <div class="input-row">
-                <div class="input-group">
-                    <label for="gh-token">GitHub Personal Access Token</label>
-                    <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxx" autocomplete="off">
-                </div>
-                <div class="input-group">
-                    <label for="search-keyword">Palabra Clave (Archivo)</label>
-                    <input type="text" id="search-keyword" placeholder="config.json" value="config.json">
-                </div>
-            </div>
-            
-            <div class="input-row">
-                <div class="input-group">
-                    <label for="repo-filter">Filtrar Repositorios (Parcial)</label>
-                    <input type="text" id="repo-filter" placeholder="ej: eae, core...">
-                </div>
-                <div class="input-group">
-                    <label for="env-selector">Entorno Objetivo</label>
-                    <select id="env-selector">
-                        <option value="all">TODOS (Matrix)</option>
-                        <option value="qa">QA (Rama qa)</option>
-                        <option value="uat">UAT (Rama uat)</option>
-                        <option value="pro">PRO (Rama master)</option>
-                    </select>
-                </div>
-            </div>
+        <div class="tabs-navigation">
+            <button class="tab-card active" data-tab="monitor">
+                <div class="tab-icon">📊</div>
+                <div class="tab-label">Monitor</div>
+            </button>
+            <button class="tab-card" data-tab="statistics">
+                <div class="tab-icon">📈</div>
+                <div class="tab-label">Estadísticas</div>
+            </button>
+            <button class="tab-card" data-tab="extra">
+                <div class="tab-icon">⚙️</div>
+                <div class="tab-label">Extra</div>
+            </button>
+        </div>
 
-            <div class="config-actions" style="display: none;">
-                <button id="run-search-btn" class="btn btn-primary">Iniciar Escaneo de Monitor</button>
-            </div>
-        </section>
+        <section class="config-panel glass hidden"></section>
 
-        <section id="results-panel" class="results-panel glass hidden">
-            <div class="panel-header">
-                <h2>Estado de los Entornos</h2>
-                <div id="search-status" class="status-indicator"></div>
-            </div>
-            
-            <div id="matrix-container" class="matrix-container">
-                <table class="matrix-table">
-                    <thead>
-                        <tr>
-                            <th>Repositorio</th>
-                            <th>Entorno</th>
-                            <th>Versión</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody id="matrix-body">
-                        <!-- Filas de tabla -->
-                    </tbody>
-                </table>
-            </div>
+        <div id="tab-monitor" class="tab-content active">
+            <section class="filter-panel glass">
+                <div class="input-row">
+                    <div class="input-group">
+                        <label for="repo-filter">Filtrar Repositorios (Parcial)</label>
+                        <input type="text" id="repo-filter" placeholder="ej: eae, core...">
+                    </div>
+                    <div class="input-group">
+                        <label for="env-selector">Entorno Objetivo</label>
+                        <select id="env-selector">
+                            <option value="all">TODOS (Matrix)</option>
+                            <option value="qa">QA (Rama qa)</option>
+                            <option value="uat">UAT (Rama uat)</option>
+                            <option value="pro">PRO (Rama master)</option>
+                        </select>
+                    </div>
+                </div>
 
-            <div id="results-container" class="results-list hidden">
-                <!-- Resultados RAW (opcional) -->
-            </div>
-        </section>
+                <div class="config-actions">
+                    <button id="run-search-btn" class="btn btn-primary">Iniciar Escaneo de Monitor</button>
+                </div>
+            </section>
+
+            <section id="results-panel" class="results-panel glass hidden">
+                <div class="panel-header">
+                    <h2>Estado de los Entornos</h2>
+                    <div id="search-status" class="status-indicator"></div>
+                </div>
+                
+                <div id="matrix-container" class="matrix-container">
+                    <table class="matrix-table">
+                        <thead>
+                            <tr>
+                                <th>Repositorio</th>
+                                <th>Entorno</th>
+                                <th>Versión</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="matrix-body">
+                            <!-- Filas de tabla -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="results-container" class="results-list hidden">
+                    <!-- Resultados RAW (opcional) -->
+                </div>
+            </section>
+        </div>
+
+        <div id="tab-statistics" class="tab-content">
+            <section class="statistics-panel glass">
+                <div class="panel-header">
+                    <h2>Estadísticas</h2>
+                </div>
+                <div id="statistics-content" class="statistics-content">
+                    <!-- Contenido de estadísticas -->
+                </div>
+            </section>
+        </div>
+
+        <div id="tab-extra" class="tab-content">
+            <section class="extra-panel glass">
+                <div class="panel-header">
+                    <h2>Extra</h2>
+                </div>
+                <div id="extra-content" class="extra-content">
+                    <!-- Contenido extra -->
+                </div>
+            </section>
+        </div>
 
         <button id="debug-toggle" class="debug-toggle" title="Ver Consola de Debug">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
